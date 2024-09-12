@@ -58,16 +58,18 @@ void usage()
 
 // ----------------------------------------------------------------------------
 
-void getInts(string name, vector<int>& tokens, const string& text, char sep)
+void getInts(string name, vector<int> &tokens, const string &text, char sep)
 {
 
 	size_t start = 0, end = 0;
 	tokens.clear();
 	int item;
 
-	try {
+	try
+	{
 
-		while ((end = text.find(sep, start)) != string::npos) {
+		while ((end = text.find(sep, start)) != string::npos)
+		{
 			item = std::stoi(text.substr(start, end - start));
 			tokens.push_back(item);
 			start = end + 1;
@@ -75,38 +77,40 @@ void getInts(string name, vector<int>& tokens, const string& text, char sep)
 
 		item = std::stoi(text.substr(start));
 		tokens.push_back(item);
-
 	}
-	catch (std::invalid_argument&) {
+	catch (std::invalid_argument &)
+	{
 
 		printf("Invalid %s argument, number expected\n", name.c_str());
 		usage();
 		exit(-1);
-
 	}
-
 }
 
 // ----------------------------------------------------------------------------
 
-int parseSearchMode(const std::string& s)
+int parseSearchMode(const std::string &s)
 {
 	std::string stype = s;
 	std::transform(stype.begin(), stype.end(), stype.begin(), ::tolower);
 
-	if (stype == "address") {
+	if (stype == "address")
+	{
 		return SEARCH_MODE_SA;
 	}
 
-	if (stype == "xpoint") {
+	if (stype == "xpoint")
+	{
 		return SEARCH_MODE_SX;
 	}
 
-	if (stype == "addresses") {
+	if (stype == "addresses")
+	{
 		return SEARCH_MODE_MA;
 	}
 
-	if (stype == "xpoints") {
+	if (stype == "xpoints")
+	{
 		return SEARCH_MODE_MX;
 	}
 
@@ -117,16 +121,18 @@ int parseSearchMode(const std::string& s)
 
 // ----------------------------------------------------------------------------
 
-int parseCoinType(const std::string& s)
+int parseCoinType(const std::string &s)
 {
 	std::string stype = s;
 	std::transform(stype.begin(), stype.end(), stype.begin(), ::tolower);
 
-	if (stype == "btc") {
+	if (stype == "btc")
+	{
 		return COIN_BTC;
 	}
 
-	if (stype == "eth") {
+	if (stype == "eth")
+	{
 		return COIN_ETH;
 	}
 
@@ -137,34 +143,40 @@ int parseCoinType(const std::string& s)
 
 // ----------------------------------------------------------------------------
 
-bool parseRange(const std::string& s, Int& start, Int& end)
+bool parseRange(const std::string &s, Int &start, Int &end)
 {
 	size_t pos = s.find(':');
 
-	if (pos == std::string::npos) {
+	if (pos == std::string::npos)
+	{
 		start.SetBase16(s.c_str());
 		end.Set(&start);
 		end.Add(0xFFFFFFFFFFFFULL);
 	}
-	else {
+	else
+	{
 		std::string left = s.substr(0, pos);
 
-		if (left.length() == 0) {
+		if (left.length() == 0)
+		{
 			start.SetInt32(1);
 		}
-		else {
+		else
+		{
 			start.SetBase16(left.c_str());
 		}
 
 		std::string right = s.substr(pos + 1);
 
-		if (right[0] == '+') {
+		if (right[0] == '+')
+		{
 			Int t;
 			t.SetBase16(right.substr(1).c_str());
 			end.Set(&start);
 			end.Add(&t);
 		}
-		else {
+		else
+		{
 			end.SetBase16(right.c_str());
 		}
 	}
@@ -175,9 +187,10 @@ bool parseRange(const std::string& s, Int& start, Int& end)
 #ifdef WIN64
 BOOL WINAPI CtrlHandler(DWORD fdwCtrlType)
 {
-	switch (fdwCtrlType) {
+	switch (fdwCtrlType)
+	{
 	case CTRL_C_EVENT:
-		//printf("\n\nCtrl-C event\n\n");
+		// printf("\n\nCtrl-C event\n\n");
 		should_exit = true;
 		return TRUE;
 
@@ -186,13 +199,14 @@ BOOL WINAPI CtrlHandler(DWORD fdwCtrlType)
 	}
 }
 #else
-void CtrlHandler(int signum) {
+void CtrlHandler(int signum)
+{
 	printf("\n\nBYE\n");
 	exit(signum);
 }
 #endif
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
 	// Global Init
 	Timer::Init();
@@ -201,14 +215,17 @@ int main(int argc, char** argv)
 	bool gpuEnable = false;
 	bool gpuAutoGrid = true;
 	int compMode = SEARCH_COMPRESSED;
-	vector<int> gpuId = { 0 };
+	bool useSegment = false;
+	bool debugMode = false;
+	uint64_t debugInterval = 1000000; // Default debug interval
+	vector<int> gpuId = {0};
 	vector<int> gridSize;
 
 	string outputFile = "Found.txt";
 
-	string inputFile = "";	// for both multiple hash160s and x points
-	string address = "";	// for single address mode
-	string xpoint = "";		// for single x point mode
+	string inputFile = ""; // for both multiple hash160s and x points
+	string address = "";   // for single address mode
+	string xpoint = "";	   // for single x point mode
 
 	std::vector<unsigned char> hashORxpoint;
 	bool singleAddress = false;
@@ -248,38 +265,47 @@ int main(int argc, char** argv)
 	parser.add("", "--range", true);
 	parser.add("-r", "--rkey", true);
 	parser.add("-v", "--version", false);
+	parser.add("-s", "--segment", false);
+	parser.add("-d", "--debug", true);
 
-	if (argc == 1) {
+	if (argc == 1)
+	{
 		usage();
 		return 0;
 	}
-	try {
+	try
+	{
 		parser.parse(argc, argv);
 	}
-	catch (std::string err) {
+	catch (std::string err)
+	{
 		printf("Error: %s\n", err.c_str());
 		usage();
 		exit(-1);
 	}
 	std::vector<OptArg> args = parser.getArgs();
 
-	for (unsigned int i = 0; i < args.size(); i++) {
+	for (unsigned int i = 0; i < args.size(); i++)
+	{
 		OptArg optArg = args[i];
 		std::string opt = args[i].option;
 
-		try {
-			if (optArg.equals("-h", "--help")) {
+		try
+		{
+			if (optArg.equals("-h", "--help"))
+			{
 				usage();
 				return 0;
 			}
-			else if (optArg.equals("-c", "--check")) {
+			else if (optArg.equals("-c", "--check"))
+			{
 				printf("KeyHunt-Cuda v" RELEASE "\n\n");
 				printf("\nChecking... Secp256K1\n\n");
-				Secp256K1* secp = new Secp256K1();
+				Secp256K1 *secp = new Secp256K1();
 				secp->Init();
 				secp->Check();
 				printf("\n\nChecking... Int\n\n");
-				Int* K = new Int();
+				Int *K = new Int();
 				K->SetBase16("3EF7CEF65557B61DC4FF2313D0049C584017659A32B002C105D04A19DA52CB47");
 				K->Check();
 				delete secp;
@@ -287,7 +313,8 @@ int main(int argc, char** argv)
 				printf("\n\nChecked successfully\n\n");
 				return 0;
 			}
-			else if (optArg.equals("-l", "--list")) {
+			else if (optArg.equals("-l", "--list"))
+			{
 #ifdef WIN64
 				GPUEngine::PrintCudaInfo();
 #else
@@ -295,134 +322,174 @@ int main(int argc, char** argv)
 #endif
 				return 0;
 			}
-			else if (optArg.equals("-u", "--uncomp")) {
+			else if (optArg.equals("-u", "--uncomp"))
+			{
 				compMode = SEARCH_UNCOMPRESSED;
 			}
-			else if (optArg.equals("-b", "--both")) {
+			else if (optArg.equals("-b", "--both"))
+			{
 				compMode = SEARCH_BOTH;
 			}
-			else if (optArg.equals("-g", "--gpu")) {
+			else if (optArg.equals("-g", "--gpu"))
+			{
 				gpuEnable = true;
 				nbCPUThread = 0;
 			}
-			else if (optArg.equals("", "--gpui")) {
+			else if (optArg.equals("", "--gpui"))
+			{
 				string ids = optArg.arg;
 				getInts("--gpui", gpuId, ids, ',');
 			}
-			else if (optArg.equals("", "--gpux")) {
+			else if (optArg.equals("", "--gpux"))
+			{
 				string grids = optArg.arg;
 				getInts("--gpux", gridSize, grids, ',');
 				gpuAutoGrid = false;
 			}
-			else if (optArg.equals("-t", "--thread")) {
+			else if (optArg.equals("-t", "--thread"))
+			{
 				nbCPUThread = std::stoi(optArg.arg);
 				tSpecified = true;
 			}
-			else if (optArg.equals("-i", "--in")) {
+			else if (optArg.equals("-i", "--in"))
+			{
 				inputFile = optArg.arg;
 			}
-			else if (optArg.equals("-o", "--out")) {
+			else if (optArg.equals("-o", "--out"))
+			{
 				outputFile = optArg.arg;
 			}
-			else if (optArg.equals("-m", "--mode")) {
+			else if (optArg.equals("-m", "--mode"))
+			{
 				searchMode = parseSearchMode(optArg.arg);
 			}
-			else if (optArg.equals("", "--coin")) {
+			else if (optArg.equals("", "--coin"))
+			{
 				coinType = parseCoinType(optArg.arg);
 			}
-			else if (optArg.equals("", "--range")) {
+			else if (optArg.equals("", "--range"))
+			{
 				std::string range = optArg.arg;
 				parseRange(range, rangeStart, rangeEnd);
 			}
-			else if (optArg.equals("-r", "--rkey")) {
+			else if (optArg.equals("-r", "--rkey"))
+			{
 				rKey = std::stoull(optArg.arg);
 			}
-			else if (optArg.equals("-v", "--version")) {
+			else if (optArg.equals("-v", "--version"))
+			{
 				printf("KeyHunt-Cuda v" RELEASE "\n");
 				return 0;
 			}
+			else if (optArg.equals("-s", "--segment"))
+			{
+				useSegment = true;
+			}
+			else if (optArg.equals("-d", "--debug"))
+			{
+				debugMode = true;
+				if (optArg.arg.length() > 0)
+				{
+					debugInterval = std::stoull(optArg.arg);
+				}
+			}
 		}
-		catch (std::string err) {
+		catch (std::string err)
+		{
 			printf("Error: %s\n", err.c_str());
 			usage();
 			return -1;
 		}
 	}
 
-	// 
-	if (coinType == COIN_ETH && (searchMode == SEARCH_MODE_SX || searchMode == SEARCH_MODE_MX/* || compMode == SEARCH_COMPRESSED*/)) {
+	if (coinType == COIN_ETH && (searchMode == SEARCH_MODE_SX || searchMode == SEARCH_MODE_MX))
+	{
 		printf("Error: %s\n", "Wrong search or compress mode provided for ETH coin type");
 		usage();
 		return -1;
 	}
-	if (coinType == COIN_ETH) {
+	if (coinType == COIN_ETH)
+	{
 		compMode = SEARCH_UNCOMPRESSED;
 		useSSE = false;
 	}
 	if (searchMode == (int)SEARCH_MODE_MX || searchMode == (int)SEARCH_MODE_SX)
 		useSSE = false;
 
-
 	// Parse operands
 	std::vector<std::string> ops = parser.getOperands();
 
-	if (ops.size() == 0) {
+	if (ops.size() == 0)
+	{
 		// read from file
-		if (inputFile.size() == 0) {
+		if (inputFile.size() == 0)
+		{
 			printf("Error: %s\n", "Missing arguments");
 			usage();
 			return -1;
 		}
-		if (searchMode != SEARCH_MODE_MA && searchMode != SEARCH_MODE_MX) {
+		if (searchMode != SEARCH_MODE_MA && searchMode != SEARCH_MODE_MX)
+		{
 			printf("Error: %s\n", "Wrong search mode provided for multiple addresses or xpoints");
 			usage();
 			return -1;
 		}
 	}
-	else {
+	else
+	{
 		// read from cmdline
-		if (ops.size() != 1) {
+		if (ops.size() != 1)
+		{
 			printf("Error: %s\n", "Wrong args or more than one address or xpoint are provided, use inputFile for multiple addresses or xpoints");
 			usage();
 			return -1;
 		}
-		if (searchMode != SEARCH_MODE_SA && searchMode != SEARCH_MODE_SX) {
+		if (searchMode != SEARCH_MODE_SA && searchMode != SEARCH_MODE_SX)
+		{
 			printf("Error: %s\n", "Wrong search mode provided for single address or xpoint");
 			usage();
 			return -1;
 		}
 
-
-		switch (searchMode) {
+		switch (searchMode)
+		{
 		case (int)SEARCH_MODE_SA:
 		{
 			address = ops[0];
-			if (coinType == COIN_BTC) {
-				if (address.length() < 30 || address[0] != '1') {
+			if (coinType == COIN_BTC)
+			{
+				if (address.length() < 30 || address[0] != '1')
+				{
 					printf("Error: %s\n", "Invalid address, must have Bitcoin P2PKH address or Ethereum address");
 					usage();
 					return -1;
 				}
-				else {
-					if (DecodeBase58(address, hashORxpoint)) {
+				else
+				{
+					if (DecodeBase58(address, hashORxpoint))
+					{
 						hashORxpoint.erase(hashORxpoint.begin() + 0);
 						hashORxpoint.erase(hashORxpoint.begin() + 20, hashORxpoint.begin() + 24);
 						assert(hashORxpoint.size() == 20);
 					}
 				}
 			}
-			else {
-				if (address.length() != 42 || address[0] != '0' || address[1] != 'x') {
+			else
+			{
+				if (address.length() != 42 || address[0] != '0' || address[1] != 'x')
+				{
 					printf("Error: %s\n", "Invalid Ethereum address");
 					usage();
 					return -1;
 				}
 				address.erase(0, 2);
-				for (int i = 0; i < 40; i += 2) {
+				for (int i = 0; i < 40; i += 2)
+				{
 					uint8_t c = 0;
-					for (size_t j = 0; j < 2; j++) {
+					for (size_t j = 0; j < 2; j++)
+					{
 						uint32_t c0 = (uint32_t)address[i + j];
-						uint8_t c2 = (uint8_t)strtol((char*)&c0, NULL, 16);
+						uint8_t c2 = (uint8_t)strtol((char *)&c0, NULL, 16);
 						if (j == 0)
 							c2 = c2 << 4;
 						c |= c2;
@@ -437,13 +504,14 @@ int main(int argc, char** argv)
 		{
 			unsigned char xpbytes[32];
 			xpoint = ops[0];
-			Int* xp = new Int();
+			Int *xp = new Int();
 			xp->SetBase16(xpoint.c_str());
 			xp->Get32Bytes(xpbytes);
 			for (int i = 0; i < 32; i++)
 				hashORxpoint.push_back(xpbytes[i]);
 			delete xp;
-			if (hashORxpoint.size() != 32) {
+			if (hashORxpoint.size() != 32)
+			{
 				printf("Error: %s\n", "Invalid xpoint");
 				usage();
 				return -1;
@@ -458,24 +526,29 @@ int main(int argc, char** argv)
 		}
 	}
 
-	if (gridSize.size() == 0) {
-		for (int i = 0; i < gpuId.size(); i++) {
+	if (gridSize.size() == 0)
+	{
+		for (int i = 0; i < gpuId.size(); i++)
+		{
 			gridSize.push_back(-1);
 			gridSize.push_back(128);
 		}
 	}
-	if (gridSize.size() != gpuId.size() * 2) {
+	if (gridSize.size() != gpuId.size() * 2)
+	{
 		printf("Error: %s\n", "Invalid gridSize or gpuId argument, must have coherent size\n");
 		usage();
 		return -1;
 	}
 
-	if (rangeStart.GetBitLength() <= 0) {
+	if (rangeStart.GetBitLength() <= 0)
+	{
 		printf("Error: %s\n", "Invalid start range, provide start range at least, end range would be: start range + 0xFFFFFFFFFFFFULL\n");
 		usage();
 		return -1;
 	}
-	if (nbCPUThread > 0 && gpuEnable) {
+	if (nbCPUThread > 0 && gpuEnable)
+	{
 		printf("Error: %s\n", "Invalid arguments, CPU and GPU, both can't be used together right now\n");
 		usage();
 		return -1;
@@ -488,7 +561,6 @@ int main(int argc, char** argv)
 	if (nbCPUThread < 0)
 		nbCPUThread = 0;
 
-
 	printf("\n");
 	printf("KeyHunt-Cuda v" RELEASE "\n");
 	printf("\n");
@@ -498,25 +570,30 @@ int main(int argc, char** argv)
 	printf("SEARCH MODE  : %s\n", searchMode == (int)SEARCH_MODE_MA ? "Multi Address" : (searchMode == (int)SEARCH_MODE_SA ? "Single Address" : (searchMode == (int)SEARCH_MODE_MX ? "Multi X Points" : "Single X Point")));
 	printf("DEVICE       : %s\n", (gpuEnable && nbCPUThread > 0) ? "CPU & GPU" : ((!gpuEnable && nbCPUThread > 0) ? "CPU" : "GPU"));
 	printf("CPU THREAD   : %d\n", nbCPUThread);
-	if (gpuEnable) {
+	if (gpuEnable)
+	{
 		printf("GPU IDS      : ");
-		for (int i = 0; i < gpuId.size(); i++) {
+		for (int i = 0; i < gpuId.size(); i++)
+		{
 			printf("%d", gpuId.at(i));
 			if (i + 1 < gpuId.size())
 				printf(", ");
 		}
 		printf("\n");
 		printf("GPU GRIDSIZE : ");
-		for (int i = 0; i < gridSize.size(); i++) {
+		for (int i = 0; i < gridSize.size(); i++)
+		{
 			printf("%d", gridSize.at(i));
-			if (i + 1 < gridSize.size()) {
-				if ((i + 1) % 2 != 0) {
+			if (i + 1 < gridSize.size())
+			{
+				if ((i + 1) % 2 != 0)
+				{
 					printf("x");
 				}
-				else {
+				else
+				{
 					printf(", ");
 				}
-
 			}
 		}
 		if (gpuAutoGrid)
@@ -527,8 +604,22 @@ int main(int argc, char** argv)
 	printf("SSE          : %s\n", useSSE ? "YES" : "NO");
 	printf("RKEY         : %llu Mkeys\n", rKey);
 	printf("MAX FOUND    : %d\n", maxFound);
-	if (coinType == COIN_BTC) {
-		switch (searchMode) {
+	printf("RANGE START  : %s\n", rangeStart.GetBase16().c_str());
+	printf("RANGE END    : %s\n", rangeEnd.GetBase16().c_str());
+	printf("SEGMENT MODE : %s\n", useSegment ? "YES" : "NO");
+	printf("DEBUG MODE   : %s", debugMode ? "YES" : "NO");
+	if (debugMode)
+	{
+		printf(" (Interval: %llu keys)\n", debugInterval);
+	}
+	else
+	{
+		printf("\n");
+	}
+	if (coinType == COIN_BTC)
+	{
+		switch (searchMode)
+		{
 		case (int)SEARCH_MODE_MA:
 			printf("BTC HASH160s : %s\n", inputFile.c_str());
 			break;
@@ -545,8 +636,10 @@ int main(int argc, char** argv)
 			break;
 		}
 	}
-	else {
-		switch (searchMode) {
+	else
+	{
+		switch (searchMode)
+		{
 		case (int)SEARCH_MODE_MA:
 			printf("ETH ADDRESSES: %s\n", inputFile.c_str());
 			break;
@@ -559,53 +652,64 @@ int main(int argc, char** argv)
 	}
 	printf("OUTPUT FILE  : %s\n", outputFile.c_str());
 
-
 #ifdef WIN64
-	if (SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
-		KeyHunt* v;
-		switch (searchMode) {
+	if (SetConsoleCtrlHandler(CtrlHandler, TRUE))
+	{
+		KeyHunt *v;
+		switch (searchMode)
+		{
 		case (int)SEARCH_MODE_MA:
 		case (int)SEARCH_MODE_MX:
 			v = new KeyHunt(inputFile, compMode, searchMode, coinType, gpuEnable, outputFile, useSSE,
-				maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit);
+							maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit, useSegment);
 			break;
 		case (int)SEARCH_MODE_SA:
 		case (int)SEARCH_MODE_SX:
 			v = new KeyHunt(hashORxpoint, compMode, searchMode, coinType, gpuEnable, outputFile, useSSE,
-				maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit);
+							maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit, useSegment);
 			break;
 		default:
 			printf("\n\nNothing to do, exiting\n");
 			return 0;
 			break;
 		}
+		if (debugMode)
+		{
+			v->ToggleDebugMode(true, debugInterval);
+		}
 		v->Search(nbCPUThread, gpuId, gridSize, should_exit);
 		delete v;
 		printf("\n\nBYE\n");
 		return 0;
 	}
-	else {
+	else
+	{
 		printf("Error: could not set control-c handler\n");
 		return -1;
 	}
 #else
 	signal(SIGINT, CtrlHandler);
-	KeyHunt* v;
-	switch (searchMode) {
+	KeyHunt *v;
+	switch (searchMode)
+	{
 	case (int)SEARCH_MODE_MA:
 	case (int)SEARCH_MODE_MX:
 		v = new KeyHunt(inputFile, compMode, searchMode, coinType, gpuEnable, outputFile, useSSE,
-			maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit);
+						maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit, useSegment);
 		break;
 	case (int)SEARCH_MODE_SA:
 	case (int)SEARCH_MODE_SX:
 		v = new KeyHunt(hashORxpoint, compMode, searchMode, coinType, gpuEnable, outputFile, useSSE,
-			maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit);
+						maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit, useSegment);
 		break;
 	default:
 		printf("\n\nNothing to do, exiting\n");
 		return 0;
 		break;
+	}
+	if (debugMode)
+	{
+		v->ToggleDebugMode(true, debugInterval);
 	}
 	v->Search(nbCPUThread, gpuId, gridSize, should_exit);
 	delete v;
