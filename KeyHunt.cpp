@@ -26,7 +26,7 @@ std::mt19937 gen(rd());
 
 KeyHunt::KeyHunt(const std::string &inputFile, int compMode, int searchMode, int coinType, bool useGpu,
 				 const std::string &outputFile, bool useSSE, uint32_t maxFound, uint64_t rKey,
-				 const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit)
+				 const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment)
 {
 	this->compMode = compMode;
 	this->useGpu = useGpu;
@@ -43,6 +43,13 @@ KeyHunt::KeyHunt(const std::string &inputFile, int compMode, int searchMode, int
 	this->rangeDiff2.Set(&this->rangeEnd);
 	this->rangeDiff2.Sub(&this->rangeStart);
 	this->lastrKey = 0;
+	this->useSegment = useSegment;
+	this->debugMode = false;
+	this->maxThreads = 0;
+	this->rangeDiffs = nullptr;
+	this->printDebug = false;
+	this->debugUpdateInterval = 1000000;
+	this->debugInterval = 1000000;
 
 	secp = new Secp256K1();
 	secp->Init();
@@ -139,7 +146,7 @@ KeyHunt::KeyHunt(const std::string &inputFile, int compMode, int searchMode, int
 
 KeyHunt::KeyHunt(const std::vector<unsigned char> &hashORxpoint, int compMode, int searchMode, int coinType,
 				 bool useGpu, const std::string &outputFile, bool useSSE, uint32_t maxFound, uint64_t rKey,
-				 const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit)
+				 const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment)
 {
 	this->compMode = compMode;
 	this->useGpu = useGpu;
@@ -155,6 +162,13 @@ KeyHunt::KeyHunt(const std::vector<unsigned char> &hashORxpoint, int compMode, i
 	this->rangeDiff2.Set(&this->rangeEnd);
 	this->rangeDiff2.Sub(&this->rangeStart);
 	this->targetCounter = 1;
+	this->useSegment = useSegment;
+	this->debugMode = false;
+	this->maxThreads = 0;
+	this->rangeDiffs = nullptr;
+	this->printDebug = false;
+	this->debugUpdateInterval = 1000000;
+	this->debugInterval = 1000000;
 
 	secp = new Secp256K1();
 	secp->Init();
@@ -785,55 +799,130 @@ void KeyHunt::FindKeyCPU(TH_PARAM *ph)
 
 void KeyHunt::getGPUStartingKeys(Int &tRangeStart, Int &tRangeEnd, int groupSize, int nbThread, Int *keys, Point *p)
 {
-	Int tRangeDiff;
-	tRangeDiff.Set(&tRangeEnd);
-	tRangeDiff.Sub(&tRangeStart);
-
-	// printf("Debug: getGPUStartingKeys called. Range start: %s, Range end: %s\n",
-	// tRangeStart.GetBase16().c_str(), tRangeEnd.GetBase16().c_str());
-
-	for (int i = 0; i < nbThread; i++)
+	if (useSegment)
 	{
-		keys[i].Set(&tRangeStart);
-
-		if (rKey > 0)
+		// Segmented mode
+		maxThreads = nbThread;
+		if (rangeDiffs == nullptr)
 		{
-			Int randomPart;
-			randomPart.Rand(tRangeDiff.GetBitLength());
-			keys[i].Add(&randomPart);
-
-			// printf("Debug: Generated key for thread %d: %s\n", i, keys[i].GetBase16().c_str());
-
-			// Ensure the key is within the range
-			if (keys[i].IsGreater(&tRangeEnd))
-			{
-				// printf("Debug: Generated key out of range for thread %d. Adjusting.\n", i);
-				keys[i].Set(&tRangeEnd);
-				keys[i].Sub(&tRangeDiff);
-				Int two;
-				two.SetInt32(2);
-				keys[i].Div(&two); // Set to middle of range if over
-								   // printf("Debug: Adjusted key for thread %d: %s\n", i, keys[i].GetBase16().c_str());
-			}
-			if (keys[i].IsLower(&tRangeStart))
-			{
-				// printf("Debug: Generated key below range for thread %d. Adjusting.\n", i);
-				keys[i].Set(&tRangeStart);
-				// printf("Debug: Adjusted key for thread %d: %s\n", i, keys[i].GetBase16().c_str());
-			}
+			rangeDiffs = new Int[maxThreads];
 		}
 
-		Int k;
-		k.Set(&keys[i]);
-		Int halfGroupSize;
-		halfGroupSize.SetInt32(groupSize / 2);
-		k.Add(&halfGroupSize);
-		p[i] = secp->ComputePublicKey(&k);
+		Int rangeSize = tRangeEnd;
+		rangeSize.Sub(&tRangeStart);
+		Int threadRangeSize = rangeSize;
+		Int nbThreadsInt;
+		nbThreadsInt.SetInt32(maxThreads);
+		threadRangeSize.Div(&nbThreadsInt);
 
-		// printf("Debug: Final key for thread %d: %s\n", i, keys[i].GetBase16().c_str());
+		if (printDebug)
+		{
+			printf("Debug: Segmented mode. Total range: [%s, %s]\n",
+				   tRangeStart.GetBase16().c_str(), tRangeEnd.GetBase16().c_str());
+		}
+
+		for (int i = 0; i < maxThreads; i++)
+		{
+			Int threadStart = tRangeStart;
+			Int iInt;
+			iInt.SetInt32(i);
+			Int offset;
+			offset.Set(&threadRangeSize);
+			offset.Mult(&iInt);
+			threadStart.Add(&offset);
+			Int threadEnd = threadStart;
+			threadEnd.Add(&threadRangeSize);
+			if (i == maxThreads - 1)
+			{
+				threadEnd.Set(&tRangeEnd); // Ensure the last thread covers up to the range end
+			}
+
+			rangeDiffs[i].Set(&threadEnd);
+			rangeDiffs[i].Sub(&threadStart);
+
+			if (rKey > 0)
+			{
+				// Generate a random key within the thread's range
+				keys[i].Rand(&rangeDiffs[i]);
+				keys[i].Add(&threadStart);
+			}
+			else
+			{
+				keys[i].Set(&threadStart);
+			}
+
+			// Compute the public key
+			Int k;
+			k.Set(&keys[i]);
+			Int halfGroupSize;
+			halfGroupSize.SetInt32(groupSize / 2);
+			k.Add(&halfGroupSize);
+			p[i] = secp->ComputePublicKey(&k);
+
+			if (printDebug)
+			{
+				printf("Debug: Thread %d range: [%s, %s]\n", i,
+					   threadStart.GetBase16().c_str(), threadEnd.GetBase16().c_str());
+				printf("Debug: Thread %d starting key: %s\n", i, keys[i].GetBase16().c_str());
+			}
+		}
+	}
+	else
+	{
+		// Original non-segmented mode
+		Int tRangeDiff;
+		tRangeDiff.Set(&tRangeEnd);
+		tRangeDiff.Sub(&tRangeStart);
+
+		if (printDebug)
+		{
+			printf("Debug: Non-segmented mode. Range: [%s, %s]\n",
+				   tRangeStart.GetBase16().c_str(), tRangeEnd.GetBase16().c_str());
+		}
+
+		for (int i = 0; i < nbThread; i++)
+		{
+			keys[i].Set(&tRangeStart);
+
+			if (rKey > 0)
+			{
+				Int randomPart;
+				randomPart.Rand(tRangeDiff.GetBitLength());
+				keys[i].Add(&randomPart);
+
+				// Ensure the key is within the range
+				if (keys[i].IsGreater(&tRangeEnd))
+				{
+					keys[i].Set(&tRangeEnd);
+					keys[i].Sub(&tRangeDiff);
+					Int two;
+					two.SetInt32(2);
+					keys[i].Div(&two); // Set to middle of range if over
+				}
+				if (keys[i].IsLower(&tRangeStart))
+				{
+					keys[i].Set(&tRangeStart);
+				}
+			}
+
+			Int k;
+			k.Set(&keys[i]);
+			Int halfGroupSize;
+			halfGroupSize.SetInt32(groupSize / 2);
+			k.Add(&halfGroupSize);
+			p[i] = secp->ComputePublicKey(&k);
+
+			if (printDebug)
+			{
+				printf("Debug: Thread %d key: %s\n", i, keys[i].GetBase16().c_str());
+			}
+		}
 	}
 
-	// printf("Debug: getGPUStartingKeys completed.\n");
+	if (printDebug)
+	{
+		printf("Debug: getGPUStartingKeys completed.\n");
+	}
 }
 void KeyHunt::FindKeyGPU(TH_PARAM *ph)
 {
@@ -844,11 +933,6 @@ void KeyHunt::FindKeyGPU(TH_PARAM *ph)
 	int thId = ph->threadId;
 	Int tRangeStart = ph->rangeStart;
 	Int tRangeEnd = ph->rangeEnd;
-
-	bool printDebugInfo = false;
-	int debugSampleSize = 5;
-	uint64_t debugPrintInterval = 1000000000; // Print debug info every 1 billion keys
-	uint64_t lastDebugPrint = 0;
 
 	GPUEngine *g = nullptr;
 	try
@@ -899,6 +983,8 @@ void KeyHunt::FindKeyGPU(TH_PARAM *ph)
 
 	ph->hasStarted = true;
 	ph->rKeyRequest = false;
+
+	uint64_t lastDebugUpdate = 0;
 
 	// GPU Thread
 	while (ok && !endOfSearch)
@@ -970,39 +1056,48 @@ void KeyHunt::FindKeyGPU(TH_PARAM *ph)
 			for (int i = 0; i < nbThread; i++)
 			{
 				keys[i].Add((uint64_t)STEP_SIZE);
+
+				if (useSegment)
+				{
+					// Ensure the key stays within its assigned range
+					if (keys[i].IsGreater(&tRangeEnd))
+					{
+						keys[i].Set(&tRangeStart);
+						keys[i].Add(&rangeDiffs[i]);
+					}
+				}
 			}
 			counters[thId] += (uint64_t)(STEP_SIZE)*nbThread;
-		}
 
-		// Periodically print sample keys and addresses
-		// Periodically print sample keys and addresses
-		if (printDebugInfo && (counters[thId] - lastDebugPrint >= debugPrintInterval))
-		{
-			lastDebugPrint = counters[thId];
-			printf("\nPeriodic Sample (Counter: %lu):\n", counters[thId]);
-			for (int i = 0; i < debugSampleSize && i < nbThread; i++)
+			// Debug output
+			if (printDebug && (counters[thId] - lastDebugUpdate >= debugUpdateInterval))
 			{
-				Int privateKey(&keys[i]);
-				Point publicKey = secp->ComputePublicKey(&privateKey);
-
-				printf("Sample %d:\n", i + 1);
-				printf("Private Key: %s\n", privateKey.GetBase16().c_str());
-				printf("Public Key: (%s, %s)\n", publicKey.x.GetBase16().c_str(), publicKey.y.GetBase16().c_str());
-
-				if (coinType == COIN_BTC)
+				lastDebugUpdate = counters[thId];
+				printf("\nDebug info (GPU Thread %d, Counter: %lu):\n", thId, counters[thId]);
+				for (int i = 0; i < nbThread; i++)
 				{
-					std::string compressedAddr, uncompressedAddr;
-					GenerateBitcoinAddress(publicKey, true, compressedAddr);
-					GenerateBitcoinAddress(publicKey, false, uncompressedAddr);
-					printf("BTC Address (Compressed): %s\n", compressedAddr.c_str());
-					printf("BTC Address (Uncompressed): %s\n", uncompressedAddr.c_str());
+					Int privateKey(&keys[i]);
+					Point publicKey = secp->ComputePublicKey(&privateKey);
+
+					printf("Thread %d:\n", i);
+					printf("Private Key: %s\n", privateKey.GetBase16().c_str());
+					printf("Public Key: (%s, %s)\n", publicKey.x.GetBase16().c_str(), publicKey.y.GetBase16().c_str());
+
+					if (coinType == COIN_BTC)
+					{
+						std::string compressedAddr, uncompressedAddr;
+						GenerateBitcoinAddress(publicKey, true, compressedAddr);
+						GenerateBitcoinAddress(publicKey, false, uncompressedAddr);
+						printf("BTC Address (Compressed): %s\n", compressedAddr.c_str());
+						printf("BTC Address (Uncompressed): %s\n", uncompressedAddr.c_str());
+					}
+					else
+					{
+						std::string ethAddr = secp->GetAddressETH(publicKey);
+						printf("ETH Address: %s\n", ethAddr.c_str());
+					}
+					printf("--------------------\n");
 				}
-				else
-				{
-					std::string ethAddr = secp->GetAddressETH(publicKey);
-					printf("ETH Address: %s\n", ethAddr.c_str());
-				}
-				printf("--------------------\n");
 			}
 		}
 	}
@@ -1631,44 +1726,32 @@ void KeyHunt::checkMultiAddressesSSE(bool compressed, Int key, int i, Point p1, 
 
 void KeyHunt::checkSingleAddress(bool compressed, Int key, int i, Point p1)
 {
-	std::string address;
-	GenerateBitcoinAddress(p1, compressed, address);
+	unsigned char hash[20];
+	secp->GetHash160(compressed, p1, hash);
 
-	// Convert the address to a hash160
-	std::vector<unsigned char> decoded;
-	if (DecodeBase58(address, decoded))
+	if (MatchHash((uint32_t *)hash))
 	{
-		if (decoded.size() >= 25) // A proper Bitcoin address should be 25 bytes long
+		std::string address;
+		GenerateBitcoinAddress(p1, compressed, address);
+		if (checkPrivKey(address, key, i, compressed))
 		{
-			// The actual hash160 is from byte 1 to 20 (21 bytes total)
-			uint32_t hash[5];
-			memcpy(hash, decoded.data() + 1, 20);
-
-			if (MatchHash(hash)) // Use the MatchHash function to check if this is the target address
-			{
-				if (checkPrivKey(address, key, i, compressed))
-				{
-					nbFoundKey++;
-				}
-			}
+			nbFoundKey++;
 		}
 	}
 }
 
 void KeyHunt::checkMultiAddresses(bool compressed, Int key, int i, Point p1)
 {
-	std::string address;
-	GenerateBitcoinAddress(p1, compressed, address);
+	unsigned char hash[20];
+	secp->GetHash160(compressed, p1, hash);
 
-	std::vector<unsigned char> decoded;
-	if (DecodeBase58(address, decoded))
+	if (CheckBloomBinary(hash, 20) > 0)
 	{
-		if (decoded.size() >= 20 && CheckBloomBinary(decoded.data(), 20) > 0)
+		std::string address;
+		GenerateBitcoinAddress(p1, compressed, address);
+		if (checkPrivKey(address, key, i, compressed))
 		{
-			if (checkPrivKey(address, key, i, compressed))
-			{
-				nbFoundKey++;
-			}
+			nbFoundKey++;
 		}
 	}
 }
@@ -1696,5 +1779,22 @@ void KeyHunt::checkMultiXPoints(bool compressed, Int key, int i, Point p1)
 		{
 			nbFoundKey++;
 		}
+	}
+}
+void KeyHunt::ToggleDebugMode(bool enable, uint64_t updateInterval)
+{
+	printDebug = enable;
+	debugMode = enable;
+	if (enable)
+	{
+		debugUpdateInterval = updateInterval;
+		debugInterval = updateInterval;
+		printf("Debug mode enabled. Update interval: %lu keys\n", debugUpdateInterval);
+	}
+	else
+	{
+		debugUpdateInterval = 0;
+		debugInterval = 0;
+		printf("Debug mode disabled.\n");
 	}
 }
