@@ -36,17 +36,18 @@ class KeyHunt
 public:
 	KeyHunt(const std::string &inputFile, int compMode, int searchMode, int coinType, bool useGpu,
 			const std::string &outputFile, bool useSSE, uint32_t maxFound, uint64_t rKey,
-			const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit);
+			const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment);
 
 	KeyHunt(const std::vector<unsigned char> &hashORxpoint, int compMode, int searchMode, int coinType,
 			bool useGpu, const std::string &outputFile, bool useSSE, uint32_t maxFound, uint64_t rKey,
-			const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit);
+			const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment);
 
 	~KeyHunt();
 
 	void Search(int nbThread, std::vector<int> gpuId, std::vector<int> gridSize, bool &should_exit);
 	void FindKeyCPU(TH_PARAM *p);
 	void FindKeyGPU(TH_PARAM *p);
+	void ToggleDebugMode(bool enable, uint64_t updateInterval);
 
 private:
 	void InitGenratorTable();
@@ -86,7 +87,6 @@ private:
 
 	double CalcPercantage(Int &n, Int &d, Int &m);
 
-	// Add this new method
 	void GenerateBitcoinAddress(Point pubKey, bool compressed, std::string &address);
 
 	Secp256K1 *secp;
@@ -124,6 +124,16 @@ private:
 	uint8_t *DATA;
 	uint64_t TOTAL_COUNT;
 	uint64_t BLOOM_N;
+
+	bool useSegment;
+	bool debugMode;
+	uint64_t debugInterval;
+	uint32_t maxThreads;
+	Int *rangeDiffs;
+
+	// New member variables
+	bool printDebug;
+	uint64_t debugUpdateInterval;
 
 #ifdef WIN64
 	HANDLE ghMutex;
