@@ -238,64 +238,6 @@ KeyHunt::~KeyHunt()
 
 // ----------------------------------------------------------------------------
 
-void KeyHunt::output(std::string addr, std::string pAddr, std::string pAddrHex, std::string pubKey)
-{
-
-#ifdef WIN64
-	WaitForSingleObject(ghMutex, INFINITE);
-#else
-	pthread_mutex_lock(&ghMutex);
-#endif
-
-	FILE *f = stdout;
-	bool needToClose = false;
-
-	if (outputFile.length() > 0)
-	{
-		f = fopen(outputFile.c_str(), "a");
-		if (f == NULL)
-		{
-			printf("Cannot open %s for writing\n", outputFile.c_str());
-			f = stdout;
-		}
-		else
-		{
-			needToClose = true;
-		}
-	}
-
-	if (!needToClose)
-		printf("\n");
-
-	fprintf(f, "PubAddress: %s\n", addr.c_str());
-	fprintf(stdout, "\n=================================================================================\n");
-	fprintf(stdout, "PubAddress: %s\n", addr.c_str());
-
-	if (coinType == COIN_BTC)
-	{
-		fprintf(f, "Priv (WIF): p2pkh:%s\n", pAddr.c_str());
-		fprintf(stdout, "Priv (WIF): p2pkh:%s\n", pAddr.c_str());
-	}
-
-	fprintf(f, "Priv (HEX): %s\n", pAddrHex.c_str());
-	fprintf(stdout, "Priv (HEX): %s\n", pAddrHex.c_str());
-
-	fprintf(f, "PubK (HEX): %s\n", pubKey.c_str());
-	fprintf(stdout, "PubK (HEX): %s\n", pubKey.c_str());
-
-	fprintf(f, "=================================================================================\n");
-	fprintf(stdout, "=================================================================================\n");
-
-	if (needToClose)
-		fclose(f);
-
-#ifdef WIN64
-	ReleaseMutex(ghMutex);
-#else
-	pthread_mutex_unlock(&ghMutex);
-#endif
-}
-
 // ----------------------------------------------------------------------------
 void KeyHunt::GenerateBitcoinAddress(Point pubKey, bool compressed, std::string &address)
 {
@@ -362,7 +304,23 @@ bool KeyHunt::checkPrivKey(std::string addr, Int &key, int32_t incr, bool mode)
 			return false;
 		}
 	}
-	output(addr, secp->GetPrivAddress(mode, k), k.GetBase16(), secp->GetPublicKeyHex(mode, p));
+
+	// Match found
+	std::string result = "PubAddress: " + addr + "\n";
+	result += "Priv (WIF): " + secp->GetPrivAddress(mode, k) + "\n";
+	result += "Priv (HEX): " + k.GetBase16() + "\n";
+	result += "PubK (HEX): " + secp->GetPublicKeyHex(mode, p) + "\n";
+	result += "==========================================\n";
+
+	// Write to file
+	writeToFile(result);
+
+	// Display in terminal
+	printf("\nMatch found!\n%s", result.c_str());
+
+	// Stop the search
+	endOfSearch = true;
+
 	return true;
 }
 
@@ -1232,8 +1190,6 @@ void KeyHunt::SetupRanges(uint32_t totalThreads)
 
 void KeyHunt::Search(int nbThread, std::vector<int> gpuId, std::vector<int> gridSize, bool &should_exit)
 {
-	// printf("Debug: Search range start: %s\n", rangeStart.GetBase16().c_str());
-	// printf("Debug: Search range end: %s\n", rangeEnd.GetBase16().c_str());
 	double t0;
 	double t1;
 	endOfSearch = false;
@@ -1336,14 +1292,17 @@ void KeyHunt::Search(int nbThread, std::vector<int> gpuId, std::vector<int> grid
 	completedPerc.SetInt32(0);
 	uint64_t rKeyCount = 0;
 
-	while (isAlive(params))
+	while (isAlive(params) && !endOfSearch)
 	{
 		int delay = 2000;
-		while (isAlive(params) && delay > 0)
+		while (isAlive(params) && delay > 0 && !endOfSearch)
 		{
 			Timer::SleepMillis(500);
 			delay -= 500;
 		}
+
+		if (endOfSearch)
+			break;
 
 		gpuCount = getGPUCount();
 		uint64_t count = getCPUCount() + gpuCount;
@@ -1407,7 +1366,6 @@ void KeyHunt::Search(int nbThread, std::vector<int> gpuId, std::vector<int> grid
 				   randomThread,
 				   params[randomThread].rangeStart.GetBase16().c_str());
 
-			// Add this part to display the current range start
 			if (rKey > 0)
 			{
 				// printf("[Range Start: %s] ", rangeStart.GetBase16().c_str());
@@ -1440,6 +1398,16 @@ void KeyHunt::Search(int nbThread, std::vector<int> gpuId, std::vector<int> grid
 		t0 = t1;
 		if (should_exit || nbFoundKey >= targetCounter || completedPerc.IsGreaterOrEqual(&p100))
 			endOfSearch = true;
+	}
+
+	// Display final message
+	if (endOfSearch && nbFoundKey > 0)
+	{
+		printf("\n\nSearch completed. Key found and saved to FOUNDKEY.txt\n");
+	}
+	else
+	{
+		printf("\n\nSearch completed. No matching key found.\n");
 	}
 
 	free(params);
@@ -1797,4 +1765,50 @@ void KeyHunt::ToggleDebugMode(bool enable, uint64_t updateInterval)
 		debugInterval = 0;
 		printf("Debug mode disabled.\n");
 	}
+}
+void KeyHunt::writeToFile(const std::string &result)
+{
+	std::ofstream outFile("FOUNDKEY.txt", std::ios::app);
+	if (outFile.is_open())
+	{
+		outFile << result << std::endl;
+		outFile.close();
+		printf("Result written to FOUNDKEY.txt\n");
+	}
+	else
+	{
+		printf("Unable to open file for writing\n");
+	}
+}
+void KeyHunt::output(std::string addr, std::string pAddr, std::string pAddrHex, std::string pubKey)
+{
+#ifdef WIN64
+	WaitForSingleObject(ghMutex, INFINITE);
+#else
+	pthread_mutex_lock(&ghMutex);
+#endif
+
+	std::string result = "PubAddress: " + addr + "\n";
+	if (coinType == COIN_BTC)
+	{
+		result += "Priv (WIF): p2pkh:" + pAddr + "\n";
+	}
+	result += "Priv (HEX): " + pAddrHex + "\n";
+	result += "PubK (HEX): " + pubKey + "\n";
+	result += "==========================================\n";
+
+	// Write to file
+	writeToFile(result);
+
+	// Display in terminal
+	printf("\nMatch found!\n%s", result.c_str());
+
+	// Stop the search
+	endOfSearch = true;
+
+#ifdef WIN64
+	ReleaseMutex(ghMutex);
+#else
+	pthread_mutex_unlock(&ghMutex);
+#endif
 }
