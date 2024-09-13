@@ -6,6 +6,7 @@
 #include "SECP256k1.h"
 #include "Bloom.h"
 #include "GPU/GPUEngine.h"
+#include <fstream>
 #ifdef WIN64
 #include <Windows.h>
 #endif
@@ -68,6 +69,7 @@ private:
 	void checkSingleAddressesSSE(bool compressed, Int key, int i, Point p1, Point p2, Point p3, Point p4);
 
 	void output(std::string addr, std::string pAddr, std::string pAddrHex, std::string pubKey);
+	void writeToFile(const std::string &result);
 	bool isAlive(TH_PARAM *p);
 
 	bool hasStarted(TH_PARAM *p);
@@ -131,7 +133,6 @@ private:
 	uint32_t maxThreads;
 	Int *rangeDiffs;
 
-	// New member variables
 	bool printDebug;
 	uint64_t debugUpdateInterval;
 
