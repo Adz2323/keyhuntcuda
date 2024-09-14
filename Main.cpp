@@ -13,7 +13,7 @@
 #include <unistd.h>
 #endif
 
-#define RELEASE "1.07"
+#define RELEASE "1.1"
 
 using namespace std;
 bool should_exit = false;
@@ -54,6 +54,9 @@ void usage()
 	printf("                                               Where START, END, COUNT are in hex format\n");
 	printf("-r, --rkey Rkey                          : Random key interval in MegaKeys, default is disabled\n");
 	printf("-v, --version                            : Show version\n");
+	printf("-f, --fullyrandom                        : Enable fully random mode (must be used with -r)\n");
+	printf("-s, --Segmentation Mode                        : Segment the range into x Amount per thread used\n");
+	printf("-d, --Debugmode                        : Debug mode shows threads & keys generated\n");
 }
 
 // ----------------------------------------------------------------------------
@@ -267,6 +270,7 @@ int main(int argc, char **argv)
 	parser.add("-v", "--version", false);
 	parser.add("-s", "--segment", false);
 	parser.add("-d", "--debug", true);
+	parser.add("-f", "--fullyrandom", false);
 
 	if (argc == 1)
 	{
@@ -284,6 +288,8 @@ int main(int argc, char **argv)
 		exit(-1);
 	}
 	std::vector<OptArg> args = parser.getArgs();
+
+	bool fullyRandom = false; // New variable to track fully random mode
 
 	for (unsigned int i = 0; i < args.size(); i++)
 	{
@@ -393,6 +399,10 @@ int main(int argc, char **argv)
 					debugInterval = std::stoull(optArg.arg);
 				}
 			}
+			else if (optArg.equals("-f", "--fullyrandom")) // New condition for fully random mode
+			{
+				fullyRandom = true;
+			}
 		}
 		catch (std::string err)
 		{
@@ -400,6 +410,14 @@ int main(int argc, char **argv)
 			usage();
 			return -1;
 		}
+	}
+
+	// After the loop, add this check
+	if (fullyRandom && rKey == 0)
+	{
+		printf("Error: Fully random mode (-f) must be used with random key interval (-r)\n");
+		usage();
+		return -1;
 	}
 
 	if (coinType == COIN_ETH && (searchMode == SEARCH_MODE_SX || searchMode == SEARCH_MODE_MX))
@@ -695,12 +713,12 @@ int main(int argc, char **argv)
 	case (int)SEARCH_MODE_MA:
 	case (int)SEARCH_MODE_MX:
 		v = new KeyHunt(inputFile, compMode, searchMode, coinType, gpuEnable, outputFile, useSSE,
-						maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit, useSegment);
+						maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit, useSegment, fullyRandom);
 		break;
 	case (int)SEARCH_MODE_SA:
 	case (int)SEARCH_MODE_SX:
 		v = new KeyHunt(hashORxpoint, compMode, searchMode, coinType, gpuEnable, outputFile, useSSE,
-						maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit, useSegment);
+						maxFound, rKey, rangeStart.GetBase16(), rangeEnd.GetBase16(), should_exit, useSegment, fullyRandom);
 		break;
 	default:
 		printf("\n\nNothing to do, exiting\n");
