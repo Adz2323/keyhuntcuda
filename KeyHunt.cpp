@@ -26,7 +26,8 @@ std::mt19937 gen(rd());
 
 KeyHunt::KeyHunt(const std::string &inputFile, int compMode, int searchMode, int coinType, bool useGpu,
 				 const std::string &outputFile, bool useSSE, uint32_t maxFound, uint64_t rKey,
-				 const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment)
+				 const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment,
+				 bool fullyRandom)
 {
 	this->compMode = compMode;
 	this->useGpu = useGpu;
@@ -50,6 +51,7 @@ KeyHunt::KeyHunt(const std::string &inputFile, int compMode, int searchMode, int
 	this->printDebug = false;
 	this->debugUpdateInterval = 1000000;
 	this->debugInterval = 1000000;
+	this->fullyRandom = fullyRandom;
 
 	secp = new Secp256K1();
 	secp->Init();
@@ -146,7 +148,8 @@ KeyHunt::KeyHunt(const std::string &inputFile, int compMode, int searchMode, int
 
 KeyHunt::KeyHunt(const std::vector<unsigned char> &hashORxpoint, int compMode, int searchMode, int coinType,
 				 bool useGpu, const std::string &outputFile, bool useSSE, uint32_t maxFound, uint64_t rKey,
-				 const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment)
+				 const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment,
+				 bool fullyRandom)
 {
 	this->compMode = compMode;
 	this->useGpu = useGpu;
@@ -169,6 +172,7 @@ KeyHunt::KeyHunt(const std::vector<unsigned char> &hashORxpoint, int compMode, i
 	this->printDebug = false;
 	this->debugUpdateInterval = 1000000;
 	this->debugInterval = 1000000;
+	this->fullyRandom = fullyRandom;
 
 	secp = new Secp256K1();
 	secp->Init();
@@ -466,7 +470,14 @@ void KeyHunt::FindKeyCPU(TH_PARAM *ph)
 
 	while (!endOfSearch)
 	{
-		if (ph->rKeyRequest)
+		if (fullyRandom)
+		{
+			// Generate a new random key within the thread's range
+			key.Rand(&tRangeEnd);
+			key.Add(&tRangeStart);
+			startP = secp->ComputePublicKey(&key);
+		}
+		else if (ph->rKeyRequest)
 		{
 			getCPUStartingKey(tRangeStart, tRangeEnd, key, startP);
 			ph->rKeyRequest = false;
@@ -736,7 +747,11 @@ void KeyHunt::FindKeyCPU(TH_PARAM *ph)
 				}
 			}
 		}
-		key.Add((uint64_t)CPU_GRP_SIZE);
+
+		if (!fullyRandom)
+		{
+			key.Add((uint64_t)CPU_GRP_SIZE);
+		}
 		counters[thId] += CPU_GRP_SIZE; // Point
 	}
 	ph->isRunning = false;
@@ -752,7 +767,6 @@ void KeyHunt::FindKeyCPU(TH_PARAM *ph)
 	delete pp;
 	delete pn;
 }
-
 // ----------------------------------------------------------------------------
 
 void KeyHunt::getGPUStartingKeys(Int &tRangeStart, Int &tRangeEnd, int groupSize, int nbThread, Int *keys, Point *p)
@@ -882,6 +896,9 @@ void KeyHunt::getGPUStartingKeys(Int &tRangeStart, Int &tRangeEnd, int groupSize
 		printf("Debug: getGPUStartingKeys completed.\n");
 	}
 }
+
+// ----------------------------------------------------------------------------
+
 void KeyHunt::FindKeyGPU(TH_PARAM *ph)
 {
 	bool ok = true;
@@ -947,7 +964,18 @@ void KeyHunt::FindKeyGPU(TH_PARAM *ph)
 	// GPU Thread
 	while (ok && !endOfSearch)
 	{
-		if (ph->rKeyRequest)
+		if (fullyRandom)
+		{
+			// Generate new random keys for each thread
+			for (int i = 0; i < nbThread; i++)
+			{
+				keys[i].Rand(&tRangeEnd);
+				keys[i].Add(&tRangeStart);
+				p[i] = secp->ComputePublicKey(&keys[i]);
+			}
+			ok = g->SetKeys(p);
+		}
+		else if (ph->rKeyRequest)
 		{
 			getGPUStartingKeys(tRangeStart, tRangeEnd, g->GetGroupSize(), nbThread, keys, p);
 			ok = g->SetKeys(p);
@@ -1009,7 +1037,7 @@ void KeyHunt::FindKeyGPU(TH_PARAM *ph)
 			}
 		}
 
-		if (ok)
+		if (ok && !fullyRandom)
 		{
 			for (int i = 0; i < nbThread; i++)
 			{
@@ -1025,37 +1053,37 @@ void KeyHunt::FindKeyGPU(TH_PARAM *ph)
 					}
 				}
 			}
-			counters[thId] += (uint64_t)(STEP_SIZE)*nbThread;
+		}
+		counters[thId] += (uint64_t)(STEP_SIZE)*nbThread;
 
-			// Debug output
-			if (printDebug && (counters[thId] - lastDebugUpdate >= debugUpdateInterval))
+		// Debug output
+		if (printDebug && (counters[thId] - lastDebugUpdate >= debugUpdateInterval))
+		{
+			lastDebugUpdate = counters[thId];
+			printf("\nDebug info (GPU Thread %d, Counter: %lu):\n", thId, counters[thId]);
+			for (int i = 0; i < nbThread; i++)
 			{
-				lastDebugUpdate = counters[thId];
-				printf("\nDebug info (GPU Thread %d, Counter: %lu):\n", thId, counters[thId]);
-				for (int i = 0; i < nbThread; i++)
+				Int privateKey(&keys[i]);
+				Point publicKey = secp->ComputePublicKey(&privateKey);
+
+				printf("Thread %d:\n", i);
+				printf("Private Key: %s\n", privateKey.GetBase16().c_str());
+				printf("Public Key: (%s, %s)\n", publicKey.x.GetBase16().c_str(), publicKey.y.GetBase16().c_str());
+
+				if (coinType == COIN_BTC)
 				{
-					Int privateKey(&keys[i]);
-					Point publicKey = secp->ComputePublicKey(&privateKey);
-
-					printf("Thread %d:\n", i);
-					printf("Private Key: %s\n", privateKey.GetBase16().c_str());
-					printf("Public Key: (%s, %s)\n", publicKey.x.GetBase16().c_str(), publicKey.y.GetBase16().c_str());
-
-					if (coinType == COIN_BTC)
-					{
-						std::string compressedAddr, uncompressedAddr;
-						GenerateBitcoinAddress(publicKey, true, compressedAddr);
-						GenerateBitcoinAddress(publicKey, false, uncompressedAddr);
-						printf("BTC Address (Compressed): %s\n", compressedAddr.c_str());
-						printf("BTC Address (Uncompressed): %s\n", uncompressedAddr.c_str());
-					}
-					else
-					{
-						std::string ethAddr = secp->GetAddressETH(publicKey);
-						printf("ETH Address: %s\n", ethAddr.c_str());
-					}
-					printf("--------------------\n");
+					std::string compressedAddr, uncompressedAddr;
+					GenerateBitcoinAddress(publicKey, true, compressedAddr);
+					GenerateBitcoinAddress(publicKey, false, uncompressedAddr);
+					printf("BTC Address (Compressed): %s\n", compressedAddr.c_str());
+					printf("BTC Address (Uncompressed): %s\n", uncompressedAddr.c_str());
 				}
+				else
+				{
+					std::string ethAddr = secp->GetAddressETH(publicKey);
+					printf("ETH Address: %s\n", ethAddr.c_str());
+				}
+				printf("--------------------\n");
 			}
 		}
 	}
@@ -1071,7 +1099,6 @@ void KeyHunt::FindKeyGPU(TH_PARAM *ph)
 
 	ph->isRunning = false;
 }
-
 // ----------------------------------------------------------------------------
 
 bool KeyHunt::isAlive(TH_PARAM *p)
