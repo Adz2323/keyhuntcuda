@@ -37,11 +37,13 @@ class KeyHunt
 public:
 	KeyHunt(const std::string &inputFile, int compMode, int searchMode, int coinType, bool useGpu,
 			const std::string &outputFile, bool useSSE, uint32_t maxFound, uint64_t rKey,
-			const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment);
+			const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment,
+			bool fullyRandom);
 
 	KeyHunt(const std::vector<unsigned char> &hashORxpoint, int compMode, int searchMode, int coinType,
 			bool useGpu, const std::string &outputFile, bool useSSE, uint32_t maxFound, uint64_t rKey,
-			const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment);
+			const std::string &rangeStart, const std::string &rangeEnd, bool &should_exit, bool useSegment,
+			bool fullyRandom);
 
 	~KeyHunt();
 
@@ -135,6 +137,8 @@ private:
 
 	bool printDebug;
 	uint64_t debugUpdateInterval;
+
+	bool fullyRandom; // New member variable for fully random mode
 
 #ifdef WIN64
 	HANDLE ghMutex;
